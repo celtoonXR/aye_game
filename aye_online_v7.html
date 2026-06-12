@@ -179,14 +179,17 @@ input::placeholder,textarea::placeholder{color:#c9952d55}
 // ============================================================
 // 🔧 FIREBASE CONFIG
 // ============================================================
-const firebaseConfig =  {
-  apiKey: "AIzaSyDDQ3chGV6JsroRuSkZiV0XFbu1JyZmkTI",
-  authDomain: "aye-jogo.firebaseapp.com",
-  databaseURL: "https://aye-jogo-default-rtdb.firebaseio.com",
-  projectId: "aye-jogo",
-  storageBucket: "aye-jogo.firebasestorage.app",
-  messagingSenderId: "1003029701594",
-  appId: "1:1003029701594:web:aa11dc0ac04aa6270dd6e3"
+const firebaseConfig = {
+  apiKey: "AIzaSyDNF_KYap5OK-4IvDyE-aCmD6qr4aolLvg",
+  authDomain: "teste-continuo-jogo.firebaseapp.com",
+  // Confira esta URL na página do Realtime Database (console do Firebase).
+  // Se o banco estiver em outra região, o formato muda para:
+  // https://teste-continuo-jogo-default-rtdb.<regiao>.firebasedatabase.app
+  databaseURL: "https://teste-continuo-jogo-default-rtdb.firebaseio.com",
+  projectId: "teste-continuo-jogo",
+  storageBucket: "teste-continuo-jogo.firebasestorage.app",
+  messagingSenderId: "486798769268",
+  appId: "1:486798769268:web:e0035a13fedb2479e3e521"
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();

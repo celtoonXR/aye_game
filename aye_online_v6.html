@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ayé — O Jogo das Sementes da Criação</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Georgia','Times New Roman',serif;background:linear-gradient(180deg,#1a0e05,#2d1a0a 40%,#1a0e05);color:#F5E6C8;min-height:100vh;overflow-x:hidden}
+button{font-family:inherit;cursor:pointer;border:none;transition:all .15s}
+button:hover:not(:disabled){filter:brightness(1.15)}
+button:disabled{cursor:not-allowed;opacity:.5}
+input,textarea{font-family:inherit}
+input::placeholder,textarea::placeholder{color:#C9952D44}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#C9952D44;border-radius:4px}
+
+.overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+.modal{background:linear-gradient(135deg,#2d1a0a,#1a0e05);border:2px solid #C9952D;border-radius:16px;padding:24px;max-width:420px;width:100%;max-height:90vh;overflow-y:auto}
+.modal h3{text-align:center;color:#C9952D;margin:8px 0 12px}
+
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold}
+.pill-cura{background:#4A9E6A33;color:#4A9E6A;border:1px solid #4A9E6A55}
+.pill-human{background:#E8C84A33;color:#E8C84A;border:1px solid #E8C84A55}
+.pill-carid{background:#5A2D6A33;color:#b888dd;border:1px solid #5A2D6A55}
+.pill-any{background:#C9952D33;color:#C9952D;border:1px solid #C9952D55}
+
+.passive-bar{display:flex;gap:6px;padding:4px 12px;font-size:10px;align-items:center;flex-wrap:wrap}
+.passive-badge{padding:2px 8px;border-radius:12px;font-size:9px;letter-spacing:.5px}
+.passive-on{background:#88dda822;color:#88dda8;border:1px solid #88dda844}
+.passive-cd{background:#dd888822;color:#dd8888;border:1px solid #dd888844}
+
+.col-label{position:absolute;font-size:7px;letter-spacing:1px;color:#C9952D88;text-align:center;width:100%;top:-12px}
+.col-label-bot{top:auto;bottom:-12px}
+
+@media(max-width:500px){.hand-grid{grid-template-columns:1fr!important}.store{width:44px!important}.pit .count{font-size:17px!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+// ============================================================
+// 🔧 FIREBASE CONFIG — SUBSTITUA COM SEUS DADOS
+// ============================================================
+const firebaseConfig =  {
+  apiKey: "AIzaSyDDQ3chGV6JsroRuSkZiV0XFbu1JyZmkTI",
+  authDomain: "aye-jogo.firebaseapp.com",
+  databaseURL: "https://aye-jogo-default-rtdb.firebaseio.com",
+  projectId: "aye-jogo",
+  storageBucket: "aye-jogo.firebasestorage.app",
+  messagingSenderId: "1003029701594",
+  appId: "1:1003029701594:web:aa11dc0ac04aa6270dd6e3"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ============================================================
+// DATA
+// ============================================================
+const OX = {
+  oxala:{name:"Oxalá",emoji:"🕊️",color:"#ddd",passive:"Kalas vazias ficam protegidas (adversário pula ao semear)",passiveShort:"Proteção de vazias"},
+  ogum:{name:"Ogum",emoji:"⚔️",color:"#2D5016",passive:"Captura rende +1 semente extra do Altar",passiveShort:"+1 captura"},
+  xango:{name:"Xangô",emoji:"⚡",color:"#C41E1E",passive:"Captura de Kala com exatamente 2 → +1 Humanidade",passiveShort:"+1💛 captura mínima"},
+  iansa:{name:"Iansã",emoji:"🌪️",color:"#8B4513",passive:"Direção de semeadura alterna automaticamente a cada turno",passiveShort:"Direção alterna"},
+  oxum:{name:"Oxum",emoji:"✨",color:"#C9952D",passive:"Ao ganhar pontos por captura, ganha +1 do mesmo tipo",passiveShort:"+1 ponto extra"},
+  nana:{name:"Nanã",emoji:"🌿",color:"#5A2D6A",passive:"Adversário perde 1 ponto ao capturar sua Kala com 4+",passiveShort:"Penaliza captura 4+"},
+  exu:{name:"Exu",emoji:"🔀",color:"#555",passive:"Kala inimiga com exatamente 1 semente → move para adjacente",passiveShort:"Desestabiliza 1s"},
+};
+
+// ENTITY LABELS for columns
+const ENTITIES = [
+  {name:"Caboclos",type:"Cura",icon:"🌿",color:"#4A9E6A"},
+  {name:"Boiadeiros",type:"Human.",icon:"🤠",color:"#E8C84A"},
+  {name:"Malandros",type:"Carid.",icon:"🎩",color:"#b888dd"},
+  {name:"Ciganos",type:"Cura",icon:"🔮",color:"#4A9E6A"},
+  {name:"Baianos",type:"Human.",icon:"🥁",color:"#E8C84A"},
+  {name:"Erês",type:"Carid.",icon:"🪀",color:"#b888dd"},
+];
+
+// CARDS — cost "any" means any single type; lower costs for more usage
+const CARDS = [
+  {id:"e1",name:"Sopro de Vida",type:"Encant.",cost:1,costType:"any",effect:"Recupere 2 sementes do Altar para uma Kala sua.",action:"recover"},
+  {id:"e2",name:"Canto da Terra",type:"Encant.",cost:1,costType:"any",effect:"+2 pontos do tipo que tiver menos.",action:"gain_pts"},
+  {id:"e3",name:"Benção da Colheita",type:"Encant.",cost:1,costType:"any",effect:"Captura com 2, 3 ou 4 neste turno.",action:"expand"},
+  {id:"e4",name:"Harmattan",type:"Encant.",cost:2,costType:"Human.",effect:"Remove 1 semente de cada Kala inimiga → Altar.",action:"harmattan"},
+  {id:"e5",name:"Raízes de Iroko",type:"Encant.",cost:1,costType:"Cura",effect:"Proteja 1 Kala sua de captura neste turno.",action:"protect"},
+  {id:"e6",name:"Brisa de Oyá",type:"Encant.",cost:1,costType:"any",effect:"Inverta sua direção de semeadura neste turno.",action:"reverse"},
+  {id:"c1",name:"Desafio de Ọba",type:"Combate",cost:2,costType:"any",effect:"Batalha! Vencedor rouba 3 do Ayé do perdedor.",action:"battle3"},
+  {id:"c2",name:"Dança de Guerra",type:"Combate",cost:1,costType:"any",effect:"Batalha! Vencedor +2 pontos de qualquer tipo.",action:"battle_pts"},
+  {id:"c3",name:"Emboscada",type:"Combate",cost:2,costType:"Human.",effect:"Batalha com +2 bônus! Vencedor rouba 2 sementes.",action:"battle_ambush"},
+  {id:"a1",name:"Roubo do Macaco",type:"Astúcia",cost:2,costType:"Carid.",effect:"Move 2 sementes de Kala inimiga → Altar.",action:"steal"},
+  {id:"a2",name:"Dádiva Envenenada",type:"Astúcia",cost:1,costType:"any",effect:"+3 sementes do Altar em Kala inimiga.",action:"gift"},
+  {id:"a3",name:"Troca de Caminhos",type:"Astúcia",cost:2,costType:"any",effect:"Troca sementes entre 2 Kalas inimigas.",action:"swap"},
+  {id:"a4",name:"Olho de Falcão",type:"Astúcia",cost:1,costType:"any",effect:"Veja a mão do adversário.",action:"spy"},
+  {id:"a5",name:"Teia Pegajosa",type:"Astúcia",cost:1,costType:"Carid.",effect:"Adversário não pode semear de 1 Kala no próx. turno.",action:"lock"},
+];
+
+const CS={"Encant.":{bg:"#1a3a2a",bd:"#2d7a4a",tx:"#88dda8"},"Combate":{bg:"#3a1a1a",bd:"#7a2d2d",tx:"#dd8888"},"Astúcia":{bg:"#2a1a3a",bd:"#5a2d7a",tx:"#b888dd"}};
+const P1P=[0,1,2,3,4,5],P2P=[7,8,9,10,11,12],P1S=6,P2S=13;
+
+function shuffle(a){const b=[...a];for(let i=b.length-1;i>0;i--){const j=0|Math.random()*(i+1);[b[i],b[j]]=[b[j],b[i]];}return b;}
+function uid(){return Math.random().toString(36).substr(2,8)}
+function genCode(){return Math.random().toString(36).substr(2,6).toUpperCase().slice(0,4)}
+function roll2d6(){return[1+0|Math.random()*6,1+0|Math.random()*6]}
+function colType(i){const c=i<7?i:i-7;return(c===0||c===3)?"Cura":(c===1||c===4)?"Human.":"Carid.";}
+function ptIcon(t){return t==="Cura"?"💚":t==="Human."?"💛":"💜"}
+function getPt(p,t){return t==="Cura"?p.cura:t==="Human."?p.humanidade:p.caridade}
+function setPt(p,t,v){if(t==="Cura")p.cura=Math.max(0,v);else if(t==="Human.")p.humanidade=Math.max(0,v);else p.caridade=Math.max(0,v)}
+function totalPts(p){return p.cura+p.humanidade+p.caridade}
+function canAfford(p,card){
+  if(card.costType==="any") return totalPts(p)>=card.cost; // can pay with any combo
+  return getPt(p,card.costType)>=card.cost;
+}
+function payCard(p,card){
+  if(card.costType==="any"){
+    let rem=card.cost;
+    // pay from highest first
+    const order=["caridade","humanidade","cura"].sort((a,b)=>p[b]-p[a]);
+    for(const k of order){if(rem<=0)break;const take=Math.min(rem,p[k]);p[k]-=take;rem-=take;}
+  } else { setPt(p,card.costType,getPt(p,card.costType)-card.cost); }
+}
+
+// Build deck: no duplicates
+function buildDeck(){return shuffle([...CARDS]).slice(0,10).map(c=>({...c,uid:uid()}));}
+
+// Shop: pick 3 unique cards for purchase round
+function buildShop(exclude){
+  const pool=CARDS.filter(c=>!(exclude||[]).includes(c.id));
+  return shuffle(pool).slice(0,3).map(c=>({...c,uid:uid()}));
+}
+
+// Firebase
+function saveGame(code,s){return db.ref('games/'+code).set(s)}
+// Normalize Firebase data (Firebase strips null values)
+function normalize(s){
+  if(!s)return s;
+  if(s.shopP1Choice===undefined||s.shopP1Choice===null)s.shopP1Choice=-99;
+  if(s.shopP2Choice===undefined||s.shopP2Choice===null)s.shopP2Choice=-99;
+  if(!s.log)s.log=[];
+  if(!s.p1.hand)s.p1.hand=[];
+  if(!s.p2.hand)s.p2.hand=[];
+  if(!s.p1.deck)s.p1.deck=[];
+  if(!s.p2.deck)s.p2.deck=[];
+  if(s.lockedPit===undefined)s.lockedPit=-1;
+  if(s.protectedPit===undefined)s.protectedPit=-1;
+  if(s.lockedBy===undefined)s.lockedBy=-1;
+  if(s.protectedBy===undefined)s.protectedBy=-1;
+  return s;
+}
+function listenGame(code,cb){const r=db.ref('games/'+code);r.on('value',snap=>{if(snap.exists())cb(normalize(snap.val()))});return()=>r.off()}
+function saveFeedback(code,fb){return db.ref('feedback/'+code+'/'+uid()).set({...fb,timestamp:Date.now()})}
+
+// ============================================================
+// APP STATE
+// ============================================================
+let A={
+  screen:'home',roomCode:'',playerNum:0,playerName:'',selOrixa:null,
+  gs:null,error:'',inputCode:'',unsub:null,
+  // UI state
+  showBattle:null, showShop:false, showFeedback:false, showAbility:false,
+  hasPlayedCard:false,
+  fbFun:0,fbBal:0,fbClar:0,fbText:'',fbSent:false,
+  reverseDir:false, protectedPit:-1, lockedPit:-1,
+  // Targeting system
+  targeting:null, // null or {card, mode:'own'|'enemy', count:1|2, selected:[], label:'...'}
+  pendingCardState:null, // saved game state snapshot before card was played
+};
+
+function setState(u){Object.assign(A,u);render()}
+
+// ============================================================
+// GAME LOGIC
+// ============================================================
+function me(){return A.playerNum===1?"p1":"p2"}
+function opp(){return A.playerNum===1?"p2":"p1"}
+function myPits(){return A.playerNum===1?P1P:P2P}
+function oppPits(){return A.playerNum===1?P2P:P1P}
+function myStore(){return A.playerNum===1?P1S:P2S}
+function oppStore(){return A.playerNum===1?P2S:P1S}
+function isMyTurn(){return A.gs&&A.gs.currentPlayer===A.playerNum}
+
+async function handleCreate(){
+  if(!A.playerName.trim()){setState({error:"Digite seu nome"});return}
+  if(!A.selOrixa){setState({error:"Escolha um Orixá"});return}
+  const code=genCode(),d=buildDeck();
+  const s={
+    phase:"waiting",pits:[4,4,4,4,4,4,0,4,4,4,4,4,4,0],altar:0,
+    p1:{name:A.playerName.trim(),orixa:A.selOrixa,hand:d.slice(0,3),deck:d.slice(3),cura:2,humanidade:2,caridade:2,abilityUsed:false,passiveCd:false},
+    p2:{name:"",orixa:null,hand:[],deck:[],cura:2,humanidade:2,caridade:2,abilityUsed:false,passiveCd:false},
+    currentPlayer:1,turnNum:1,hasSowed:false,expandCapture:false,
+    log:["⏳ Aguardando Jogador 2..."],spyHand:null,lastEvent:null,
+    shopCards:null,shopPhase:false,shopP1Choice:-99,shopP2Choice:-99,
+    lockedPit:-1,protectedPit:-1,lockedBy:-1,protectedBy:-1,
+  };
+  try{
+    await saveGame(code,s);
+    const unsub=listenGame(code,gs=>setState({gs}));
+    setState({roomCode:code,playerNum:1,gs:s,screen:'game',error:'',unsub,hasPlayedCard:false});
+  }catch(e){setState({error:"Erro: "+e.message})}
+}
+
+async function handleJoin(){
+  if(!A.playerName.trim()){setState({error:"Digite seu nome"});return}
+  if(!A.inputCode.trim()){setState({error:"Digite o código"});return}
+  if(!A.selOrixa){setState({error:"Escolha um Orixá"});return}
+  const code=A.inputCode.trim().toUpperCase();
+  try{
+    const snap=await db.ref('games/'+code).once('value');
+    if(!snap.exists()){setState({error:"Sala não encontrada"});return}
+    const s=normalize(snap.val());
+    if(s.phase!=="waiting"){setState({error:"Sala cheia"});return}
+    if(s.p1.orixa===A.selOrixa){setState({error:OX[A.selOrixa].name+" já escolhido"});return}
+    const d=buildDeck();
+    s.p2={name:A.playerName.trim(),orixa:A.selOrixa,hand:d.slice(0,3),deck:d.slice(3),cura:2,humanidade:2,caridade:2,abilityUsed:false,passiveCd:false};
+    s.phase="playing";
+    s.log.push("🎮 "+A.playerName.trim()+" ("+OX[A.selOrixa].name+") entrou!");
+    s.log.push("🌅 Turno 1 — Vez de "+s.p1.name);
+    await saveGame(code,s);
+    const unsub=listenGame(code,gs=>setState({gs}));
+    setState({roomCode:code,playerNum:2,gs:s,screen:'game',error:'',unsub,hasPlayedCard:false});
+  }catch(e){setState({error:"Erro: "+e.message})}
+}
+
+async function handleSow(pit){
+  if(!isMyTurn()||!A.gs||A.gs.phase!=="playing"||A.targeting)return;
+  const s=JSON.parse(JSON.stringify(A.gs));
+  if(!myPits().includes(pit)||s.pits[pit]===0||s.hasSowed)return;
+  if(s.lockedPit===pit){s.log.push("🔒 Kala trancada!");await saveGame(A.roomCode,s);return}
+
+  let seeds=s.pits[pit];s.pits[pit]=0;
+  let pos=pit;const os=oppStore();
+  // Direction: Iansã alternates, or reversed by card
+  let dir=1; // 1=anti-clockwise (normal)
+  if(s[me()].orixa==="iansa"&&s.turnNum%2===0) dir=-1;
+  if(A.reverseDir) dir*=-1;
+
+  while(seeds>0){
+    pos=((pos+dir)%14+14)%14;
+    if(pos===os)continue;
+    // Oxalá protection: skip protected empty pits of Oxalá
+    if(s[opp()].orixa==="oxala"&&oppPits().includes(pos)&&s.pits[pos]===0&&!s[opp()].passiveCd){
+      continue; // skip protected empty pit
+    }
+    s.pits[pos]++;seeds--;
+  }
+
+  // CAPTURE — only if last seed lands in OPPONENT's pit
+  let totalCap=0,capKalaType=null,hadExactly2=false;
+  const capVals=s.expandCapture?[2,3,4]:[2,3];
+  if(oppPits().includes(pos)&&pos!==s.protectedPit){
+    let cp=pos;
+    while(oppPits().includes(cp)&&capVals.includes(s.pits[cp])&&cp!==s.protectedPit){
+      if(s.pits[cp]===2)hadExactly2=true;
+      totalCap+=s.pits[cp];s.pits[cp]=0;
+      if(!capKalaType)capKalaType=colType(cp);
+      cp=((cp-dir)%14+14)%14;
+    }
+    if(totalCap>0){
+      s.pits[myStore()]+=totalCap;
+      const pType=colType(pos);
+      setPt(s[me()],pType,getPt(s[me()],pType)+totalCap);
+      let evtDetails = "✊ "+s[me()].name+" capturou "+totalCap+" sementes! +"+totalCap+" "+pType+" "+ptIcon(pType);
+      s.log.push(evtDetails);
+
+      // PASSIVES
+      // Ogum: +1 from altar
+      if(s[me()].orixa==="ogum"&&!s[me()].passiveCd&&s.altar>0){
+        s.altar--;s.pits[myStore()]++;
+        const pMsg = "⚔️ PASSIVA ATIVADA: Fúria de Ogum — +1 semente extra do Altar para o Ayé";
+        s.log.push(pMsg); evtDetails += " | " + pMsg;
+        s[me()].passiveCd=true;
+      }
+      // Xangô: +1 humanidade ONLY if any captured kala had exactly 2
+      if(s[me()].orixa==="xango"&&!s[me()].passiveCd&&hadExactly2){
+        s[me()].humanidade++;
+        const pMsg = "⚡ PASSIVA ATIVADA: Justiça de Xangô — captura de Kala com 2 → +1 💛Humanidade";
+        s.log.push(pMsg); evtDetails += " | " + pMsg;
+        s[me()].passiveCd=true;
+      }
+      // Oxum: +1 same type
+      if(s[me()].orixa==="oxum"&&!s[me()].passiveCd){
+        setPt(s[me()],pType,getPt(s[me()],pType)+1);
+        const pMsg = "✨ PASSIVA ATIVADA: Prosperidade de Oxum — +1 "+pType+" "+ptIcon(pType)+" extra";
+        s.log.push(pMsg); evtDetails += " | " + pMsg;
+        s[me()].passiveCd=true;
+      }
+      // Nanã opponent: lose 1 pt if captured from 4+ kala
+      if(s[opp()].orixa==="nana"&&!s[opp()].passiveCd&&totalCap>=4){
+        const lt=colType(pos);const cur=getPt(s[me()],lt);
+        if(cur>0){setPt(s[me()],lt,cur-1);
+          const pMsg = "🌿 PASSIVA ATIVADA: Resistência de Nanã — "+s[me()].name+" perde 1 "+lt+" "+ptIcon(lt)+" (capturou de Kala com 4+)";
+          s.log.push(pMsg); evtDetails += " | " + pMsg;
+          s[opp()].passiveCd=true;}
+      }
+      s.lastEvent={type:'capture',icon:'✊',text:evtDetails,player:s[me()].name};
+    }
+  } else if(oppPits().includes(pos)&&pos===s.protectedPit){
+    s.log.push("🛡️ Kala protegida! A captura foi impedida pelo Escudo.");
+    s.lastEvent={type:'blocked',icon:'🛡️',text:s[me()].name+" tentou capturar uma Kala protegida — captura impedida!",player:s[me()].name};
+  }
+
+  // Exu passive: if any opponent kala has exactly 1
+  if(s[me()].orixa==="exu"&&!s[me()].passiveCd){
+    const target=oppPits().find(i=>s.pits[i]===1);
+    if(target!==undefined){
+      const adj=oppPits()[(oppPits().indexOf(target)+1)%6];
+      s.pits[target]--;s.pits[adj]++;
+      const pMsg="🔀 PASSIVA ATIVADA: Encruzilhada de Exu — semente movida automaticamente de C"+(target<7?target+1:target-6)+" → C"+(adj<7?adj+1:adj-6);
+      s.log.push(pMsg);
+      if(!s.lastEvent)s.lastEvent={type:'passive',icon:'🔀',text:pMsg,player:s[me()].name};
+      s[me()].passiveCd=true;
+    }
+  }
+
+  // Extra turn?
+  if(pos===myStore()){
+    s.log.push("🔄 "+s[me()].name+" ganhou turno extra! (última semente caiu no Ayé)");
+    s.lastEvent={type:'extra',icon:'🔄',text:s[me()].name+" ganhou TURNO EXTRA! Última semente no Ayé.",player:s[me()].name};
+    s.hasSowed=false;
+  } else{
+    if(!s.lastEvent) s.lastEvent={type:'sow',icon:'🌱',text:s[me()].name+" semeou sementes.",player:s[me()].name};
+    s.hasSowed=true;
+  }
+
+  s.expandCapture=false;s.protectedPit=-1;
+  A.reverseDir=false;A.protectedPit=-1;
+
+  // Check end
+  const p1e=P1P.every(i=>s.pits[i]===0),p2e=P2P.every(i=>s.pits[i]===0);
+  if(p1e||p2e){
+    if(p1e)P2P.forEach(i=>{s.pits[P2S]+=s.pits[i];s.pits[i]=0;});
+    if(p2e)P1P.forEach(i=>{s.pits[P1S]+=s.pits[i];s.pits[i]=0;});
+    s.phase="game_over";
+    const w=s.pits[P1S]>s.pits[P2S]?s.p1.name:s.pits[P2S]>s.pits[P1S]?s.p2.name:"Empate";
+    s.log.push("🏆 "+(w==="Empate"?"Empate cósmico!":w+" vence!")+" ("+s.pits[P1S]+" vs "+s.pits[P2S]+")");
+  }
+
+  s.log=s.log.slice(-50);
+  await saveGame(A.roomCode,s);
+}
+
+async function handleClearBattle(){const s=JSON.parse(JSON.stringify(A.gs));delete s.battleResult;await saveGame(A.roomCode,s);}
+
+async function handleEndTurn(){
+  if(!isMyTurn()||!A.gs||!A.gs.hasSowed)return;
+  const s=JSON.parse(JSON.stringify(A.gs));
+  const next=A.playerNum===1?2:1;
+  s.currentPlayer=next;s.hasSowed=false;s.expandCapture=false;s.spyHand=null;delete s.battleResult;
+  
+  // Only clear lock/protect if they were set by the NEXT player (meaning they've persisted through one opponent turn)
+  if(s.lockedBy===next) {s.lockedPit=-1;s.lockedBy=-1;}
+  if(s.protectedBy===next) {s.protectedPit=-1;s.protectedBy=-1;}
+  if(next===1)s.turnNum++;
+  const np=next===1?"p1":"p2";
+
+  // Reset passive cooldown for next player
+  s[np].passiveCd=false;
+
+  // Draw if hand < 2
+  if((s[np].hand||[]).length<2&&(s[np].deck||[]).length>0){
+    s[np].hand=s[np].hand||[];s[np].hand.push(s[np].deck.shift());
+  }
+
+  // SHOP PHASE every 3 turns
+  if(s.turnNum>0&&s.turnNum%3===1&&next===1&&s.turnNum>1){
+    s.shopCards=buildShop();
+    s.shopPhase=true;s.shopP1Choice=-99;s.shopP2Choice=-99;
+    s.log.push("🏪 FEIRA DE ARUANDA! 3 cartas disponíveis para compra.");
+  }
+
+  s.log.push("🌅 Turno "+s.turnNum+" — Vez de "+s[np].name);
+  s.log=s.log.slice(-50);
+  A.hasPlayedCard=false;A.targeting=null;A.pendingCardState=null;
+  await saveGame(A.roomCode,s);
+}
+
+// Cards that need targeting
+const TGT={recover:{m:'own',n:1,l:'Escolha 1 Kala SUA'},protect:{m:'own',n:1,l:'Escolha 1 Kala SUA para proteger'},steal:{m:'enemy',n:1,l:'Escolha 1 Kala INIMIGA para roubar'},gift:{m:'enemy',n:1,l:'Escolha 1 Kala INIMIGA para presentear'},lock:{m:'enemy',n:1,l:'Escolha 1 Kala INIMIGA para trancar'},swap:{m:'enemy',n:2,l:'Escolha 2 Kalas INIMIGAS para trocar'}};
+
+async function handlePlayCard(idx){
+  if(!isMyTurn()||!A.gs||A.gs.phase!=="playing"||A.hasPlayedCard||A.targeting)return;
+  const s=JSON.parse(JSON.stringify(A.gs));
+  const hand=s[me()].hand||[];const card=hand[idx];if(!card)return;
+  if(!canAfford(s[me()],card))return;
+  // If card needs targeting, enter targeting mode (don't pay yet)
+  if(TGT[card.action]){const t=TGT[card.action];A.targeting={card:{...card,handIdx:idx},mode:t.m,count:t.n,selected:[],label:t.l};A.pendingCardState=JSON.parse(JSON.stringify(A.gs));render();return;}
+  // Non-targeting: pay and resolve
+  payCard(s[me()],card);hand.splice(idx,1);s[me()].hand=hand;A.hasPlayedCard=true;
+  switch(card.action){
+    case"gain_pts":{const ts=[{t:"Cura",v:s[me()].cura},{t:"Human.",v:s[me()].humanidade},{t:"Carid.",v:s[me()].caridade}];ts.sort((a,b)=>a.v-b.v);setPt(s[me()],ts[0].t,getPt(s[me()],ts[0].t)+2);s.log.push("🎵 "+card.name+"! +2 "+ts[0].t);break;}
+    case"expand":s.expandCapture=true;s.log.push("🌾 "+card.name+"!");break;
+    case"harmattan":{let r=0;oppPits().forEach(i=>{if(s.pits[i]>0){s.pits[i]--;r++;}});s.altar+=r;s.log.push("💨 "+card.name+"! "+r+" → Altar.");break;}
+    case"reverse":A.reverseDir=true;s.log.push("🌀 "+card.name+"!");break;
+    case"battle3":case"battle_pts":case"battle_ambush":{
+      const r1=roll2d6(),r2=roll2d6();let t1=r1[0]+r1[1],t2=r2[0]+r2[1];
+      if(card.action==="battle_ambush")t1+=2;const win=t1>t2;
+      const result={card:card.name,r1,r2,t1,t2,winName:win?s[me()].name:s[opp()].name,effect:''};
+      if(card.action==="battle3"){const wk=win?me():opp(),lk=win?opp():me();const wS=wk==="p1"?P1S:P2S,lS=lk==="p1"?P1S:P2S;const st=Math.min(3,s.pits[lS]);s.pits[wS]+=st;s.pits[lS]-=st;result.effect=st+" sementes roubadas!";}
+      else if(card.action==="battle_pts"){const wk=win?me():opp();s[wk].humanidade+=2;result.effect="+2 Humanidade para "+s[wk].name;}
+      else{const wk=win?me():opp(),lk=win?opp():me();const st=Math.min(2,s.pits[lk==="p1"?P1S:P2S]);s.pits[wk==="p1"?P1S:P2S]+=st;s.pits[lk==="p1"?P1S:P2S]-=st;result.effect=st+" sementes (emboscada)!";}
+      s.log.push("⚔️ "+card.name+"! "+t1+" vs "+t2+" → "+result.winName+" vence! "+result.effect);s.battleResult=result;break;}
+    case"spy":s.spyHand=(s[opp()].hand||[]).map(c=>c.name);s.log.push("👁️ "+card.name+"! "+s[me()].name+" está espiando a mão de "+s[opp()].name);break;
+  }
+  // Set last event for card play
+  const lastLog=(s.log||[]).slice(-1)[0]||'';
+  s.lastEvent={type:'card',icon:'🃏',text:s[me()].name+" jogou "+card.name+": "+card.effect,player:s[me()].name};
+  s.log=s.log.slice(-50);await saveGame(A.roomCode,s);
+}
+
+async function handleTargetPit(pit){
+  if(!A.targeting)return;const t=A.targeting;
+  const valid=t.mode==='own'?myPits():oppPits();
+  if(!valid.includes(pit)||t.selected.includes(pit))return;
+  t.selected.push(pit);
+  if(t.selected.length<t.count){A.targeting={...t};render();return;}
+  // All selected — resolve
+  const s=JSON.parse(JSON.stringify(A.pendingCardState));const card=t.card;
+  const sel=t.selected;const cL=i=>'C'+(i<7?i+1:i-6);
+  const isAbility=card.action.startsWith('ability_');
+
+  if(!isAbility){
+    // Card: pay cost and remove from hand
+    const hand=s[me()].hand||[];
+    payCard(s[me()],card);hand.splice(card.handIdx,1);s[me()].hand=hand;
+  }
+  A.hasPlayedCard=true;
+
+  switch(card.action){
+    case"recover":{const tk=Math.min(2,s.altar);if(tk>0){s.altar-=tk;s.pits[sel[0]]+=tk;s.log.push("💨 "+card.name+"! +"+tk+" → "+cL(sel[0]));}else s.log.push("💨 Altar vazio.");break;}
+    case"protect":s.protectedPit=sel[0];s.protectedBy=A.playerNum;s.log.push("🛡️ "+card.name+"! "+cL(sel[0])+" protegida até o fim do próximo turno.");break;
+    case"steal":{const tk=Math.min(2,s.pits[sel[0]]);s.pits[sel[0]]-=tk;s.altar+=tk;s.log.push("🐒 "+card.name+"! "+tk+" de "+cL(sel[0])+" → Altar.");break;}
+    case"gift":{const tk=Math.min(3,s.altar);if(tk>0){s.pits[sel[0]]+=tk;s.altar-=tk;s.log.push("🎁 "+card.name+"! +"+tk+" → "+cL(sel[0]));}else s.log.push("🎁 Altar vazio.");break;}
+    case"lock":s.lockedPit=sel[0];s.lockedBy=A.playerNum;s.log.push("🕸️ "+card.name+"! "+cL(sel[0])+" trancada.");break;
+    case"swap":{const tmp=s.pits[sel[0]];s.pits[sel[0]]=s.pits[sel[1]];s.pits[sel[1]]=tmp;s.log.push("🔄 "+card.name+"! "+cL(sel[0])+" ↔ "+cL(sel[1]));break;}
+    case"ability_xango":{
+      const tgt=sel[0];const r=roll2d6();const total=r[0]+r[1];
+      s.log.push("⚡ JULGAMENTO DE XANGÔ! Alvo: "+cL(tgt)+" — Dado: "+r[0]+"+"+r[1]+"="+total);
+      if(total>=7){const taken=s.pits[tgt];s.pits[tgt]=0;s.pits[myStore()]+=taken;s.log.push("⚡ ≥7! "+taken+" sementes capturadas de "+cL(tgt)+"!");}
+      else{const pen=Math.min(2,s.pits[myStore()]);s.pits[myStore()]-=pen;s.altar+=pen;s.log.push("⚡ <7! Perdeu "+pen+" sementes para o Altar.");}
+      s.battleResult={type:'judgment',card:"Julgamento de Xangô",r1:r,t1:total,threshold:7,success:total>=7,winName:total>=7?"SUCESSO":"FALHOU",effect:total>=7?"Kala "+cL(tgt)+" capturada!":"Penalidade: -2 sementes para o Altar"};
+      break;}
+  }
+  // Set last event for targeting card
+  const lastLogT=(s.log||[]).slice(-1)[0]||'';
+  if(isAbility){s.lastEvent={type:'ability',icon:'⚡',text:lastLogT,player:s[me()].name};}
+  else{s.lastEvent={type:'card',icon:'🃏',text:s[me()].name+" jogou "+card.name+": "+lastLogT,player:s[me()].name};}
+  A.targeting=null;A.pendingCardState=null;s.log=s.log.slice(-50);await saveGame(A.roomCode,s);
+}
+function handleTargetCancel(){A.targeting=null;A.pendingCardState=null;render();}
+
+async function handleUseAbility(){
+  if(!isMyTurn()||!A.gs||A.gs.phase!=="playing"||A.hasPlayedCard)return;
+  const s=JSON.parse(JSON.stringify(A.gs));
+  if(s[me()].abilityUsed){s.log.push("❌ Habilidade já usada nesta partida!");await saveGame(A.roomCode,s);return;}
+  s[me()].abilityUsed=true;
+  A.hasPlayedCard=true;
+  const orixa=s[me()].orixa;
+
+  switch(orixa){
+    case"oxala":s.log.push("🕊️ OPAXORÔ! Batalhas impedidas por 3 rodadas.");s.battleBlock=3;break;
+    case"ogum":{const r1=roll2d6(),r2=roll2d6();const t1=r1[0]+r1[1],t2=r2[0]+r2[1];const win=t1>t2;
+      s.log.push("⚔️ GRITO DE GUERRA! "+s[me()].name+": "+t1+" vs "+s[opp()].name+": "+t2);
+      if(win){const ep=oppPits();const full=ep.reduce((a,b)=>s.pits[a]>=s.pits[b]?a:b);const taken=s.pits[full];s.pits[full]=0;s.pits[myStore()]+=taken;s.log.push("⚔️ Vitória! "+taken+" sementes capturadas!");}
+      else s.log.push("🛡️ Derrota!");
+      s.battleResult={card:"Grito de Guerra",r1,r2,t1,t2,winner:win?me():opp(),winName:win?s[me()].name:s[opp()].name,effect:win?"Kala mais cheia capturada!":"Nada acontece."};
+      break;}
+    case"xango":{
+      // Enter targeting mode for Julgamento
+      A.targeting={card:{action:'ability_xango',name:'Julgamento de Xangô'},mode:'enemy',count:1,selected:[],label:'⚡ JULGAMENTO — Escolha 1 Kala INIMIGA para julgar'};
+      A.pendingCardState=JSON.parse(JSON.stringify(s));
+      // Mark ability as used now
+      s[me()].abilityUsed=true;
+      await saveGame(A.roomCode,s);
+      render();return;}
+    case"iansa":{oppPits().forEach(i=>{const r=Math.floor(Math.random()*6);const t=oppPits()[r];const tmp=s.pits[i];s.pits[i]=s.pits[t];s.pits[t]=tmp;});s.log.push("🌪️ TEMPESTADE! Kalas do adversário embaralhadas!");break;}
+    case"oxum":{const mp=myPits().filter(i=>s.pits[i]===0);const take=Math.min(mp.length*2,s.altar);let rem=take;s.altar-=take;
+      mp.forEach(i=>{if(rem>=2){s.pits[i]+=2;rem-=2;}else if(rem>=1){s.pits[i]+=1;rem--;}});
+      if(take>0)s.log.push("✨ RIO DA ABUNDÂNCIA! +"+take+" sementes nas Kalas vazias.");
+      else{const ts=[{t:"Cura",v:s[me()].cura},{t:"Human.",v:s[me()].humanidade},{t:"Carid.",v:s[me()].caridade}];ts.sort((a,b)=>a.v-b.v);setPt(s[me()],ts[0].t,getPt(s[me()],ts[0].t)+3);s.log.push("✨ RIO DA ABUNDÂNCIA! +3 "+ts[0].t);}
+      break;}
+    case"nana":{s[me()].caridade=s[me()].caridade*2||5;s.log.push("🌿 ANCESTRALIDADE! Caridade duplicada: "+s[me()].caridade);break;}
+    case"exu":{const oHand=s[opp()].hand||[];if(oHand.length>=2){const mid=Math.ceil(oHand.length/2);const kept=oHand.slice(0,mid);const disc=oHand.slice(mid);s[opp()].hand=kept;s.log.push("🔀 DIVISÃO! "+s[opp()].name+" perdeu "+disc.length+" cartas.");}else s.log.push("🔀 DIVISÃO! Adversário tem poucas cartas.");break;}
+  }
+  const lastAbLog=(s.log||[]).slice(-1)[0]||'';
+  s.lastEvent={type:'ability',icon:'⚡',text:"HABILIDADE ÚNICA: "+lastAbLog,player:s[me()].name};
+  s.log=s.log.slice(-50);
+  await saveGame(A.roomCode,s);
+}
+
+// SHOP: player picks a card
+async function handleShopPick(idx){
+  if(!A.gs||!A.gs.shopPhase)return;
+  const s=JSON.parse(JSON.stringify(A.gs));
+  const key=me()==="p1"?"shopP1Choice":"shopP2Choice";
+  s[key]=idx;
+  s.log.push("🏪 "+s[me()].name+" fez sua escolha na Feira.");
+
+  // Check if both have chosen (-99 = hasn't chosen yet)
+  if(s.shopP1Choice!==-99&&s.shopP2Choice!==-99){
+    if(s.shopP1Choice===s.shopP2Choice&&s.shopP1Choice>=0){
+      // DISPUTE! Battle for the card
+      const r1=roll2d6(),r2=roll2d6();const t1=r1[0]+r1[1],t2=r2[0]+r2[1];
+      const win=t1>t2;const winKey=win?"p1":"p2";const loseKey=win?"p2":"p1";
+      const card=s.shopCards[s.shopP1Choice];
+      s[winKey].hand=s[winKey].hand||[];s[winKey].hand.push({...card,uid:uid()});
+      s.log.push("⚔️ DISPUTA! "+s.p1.name+": "+t1+" vs "+s.p2.name+": "+t2+" → "+s[winKey].name+" leva "+card.name+"!");
+      s.battleResult={card:"Disputa: "+card.name,r1,r2,t1,t2,winner:winKey,winName:s[winKey].name,effect:s[winKey].name+" recebe "+card.name+"!"};
+      const remaining=s.shopCards.filter((_,i)=>i!==s.shopP1Choice);
+      if(remaining.length>0){s[loseKey].hand.push({...remaining[0],uid:uid()});s.log.push("🏪 "+s[loseKey].name+" recebe "+remaining[0].name+" como consolação.");}
+    } else {
+      // Different choices or skips — each gets their pick if they chose one
+      if(s.shopP1Choice>=0){s.p1.hand=s.p1.hand||[];s.p1.hand.push({...s.shopCards[s.shopP1Choice],uid:uid()});s.log.push("🏪 "+s.p1.name+" pegou "+s.shopCards[s.shopP1Choice].name+".");}
+      if(s.shopP2Choice>=0){s.p2.hand=s.p2.hand||[];s.p2.hand.push({...s.shopCards[s.shopP2Choice],uid:uid()});s.log.push("🏪 "+s.p2.name+" pegou "+s.shopCards[s.shopP2Choice].name+".");}
+      if(s.shopP1Choice<0&&s.shopP2Choice<0){s.log.push("🏪 Ninguém quis comprar.");}
+    }
+    s.shopPhase=false;s.shopCards=null;s.shopP1Choice=-99;s.shopP2Choice=-99;
+    const lastShopLog=(s.log||[]).slice(-1)[0]||'';
+    s.lastEvent={type:'shop',icon:'🏪',text:"FEIRA DE ARUANDA: "+lastShopLog.replace('🏪 ','').replace('⚔️ ',''),player:'Feira'};
+  }
+  s.log=s.log.slice(-50);
+  await saveGame(A.roomCode,s);
+}
+
+async function handleShopSkip(){
+  if(!A.gs||!A.gs.shopPhase)return;
+  const s=JSON.parse(JSON.stringify(A.gs));
+  const key=me()==="p1"?"shopP1Choice":"shopP2Choice";
+  s[key]=-1; // -1 = skip
+  s.log.push("🏪 "+s[me()].name+" passou a Feira.");
+  if(s.shopP1Choice!==-99&&s.shopP2Choice!==-99){
+    if(s.shopP1Choice>=0&&s.shopP2Choice<0){s.p1.hand.push({...s.shopCards[s.shopP1Choice],uid:uid()});s.log.push("🏪 "+s.p1.name+" pegou "+s.shopCards[s.shopP1Choice].name+".");}
+    else if(s.shopP2Choice>=0&&s.shopP1Choice<0){s.p2.hand.push({...s.shopCards[s.shopP2Choice],uid:uid()});s.log.push("🏪 "+s.p2.name+" pegou "+s.shopCards[s.shopP2Choice].name+".");}
+    else{s.log.push("🏪 Ninguém quis comprar.");}
+    s.shopPhase=false;s.shopCards=null;s.shopP1Choice=-99;s.shopP2Choice=-99;
+    const lastSkipLog=(s.log||[]).slice(-1)[0]||'';
+    s.lastEvent={type:'shop',icon:'🏪',text:"FEIRA DE ARUANDA: "+lastSkipLog.replace('🏪 ',''),player:'Feira'};
+  }
+  s.log=s.log.slice(-50);
+  await saveGame(A.roomCode,s);
+}
+
+function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen();}
+
+async function submitFeedback(){
+  await saveFeedback(A.roomCode,{player:A.playerName,orixa:A.selOrixa,fun:A.fbFun,balance:A.fbBal,clarity:A.fbClar,comments:A.fbText,
+    winner:A.gs.pits[P1S]>A.gs.pits[P2S]?A.gs.p1.name:A.gs.pits[P2S]>A.gs.pits[P1S]?A.gs.p2.name:"Empate",
+    score:A.gs.pits[P1S]+" vs "+A.gs.pits[P2S],turns:A.gs.turnNum});
+  setState({fbSent:true});
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function render(){
+  if(A.screen==='home')renderHome();
+  else renderGame();
+}
+
+function renderHome(){
+  root.innerHTML=`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div style="max-width:480px;width:100%;text-align:center">
+      <div style="color:#C9952D;font-size:14px;letter-spacing:6px">⬥ ⬥ ⬥</div>
+      <h1 style="font-size:42px;margin:8px 0 4px;letter-spacing:2px">AYÉ</h1>
+      <p style="color:#C9952D;font-size:13px;margin:0 0 24px">O Jogo das Sementes da Criação — Multiplayer</p>
+      <input class="input-field" style="width:100%;padding:12px 16px;background:#2d1a0a;border:1px solid #C9952D44;border-radius:8px;color:#F5E6C8;font-size:16px;margin-bottom:16px" id="ni" placeholder="Seu nome" value="${A.playerName}">
+      <p style="color:#C9952D;font-size:11px;letter-spacing:2px;margin:12px 0 8px">ESCOLHA SEU ORIXÁ</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:20px">${Object.entries(OX).map(([k,o])=>`
+        <button onclick="setState({selOrixa:'${k}'})" style="background:${A.selOrixa===k?o.color+'33':'#1a0e0599'};border:2px solid ${A.selOrixa===k?o.color:'#5a3a1a'};border-radius:10px;padding:10px 4px">
+          <div style="font-size:22px">${o.emoji}</div>
+          <div style="font-size:10px;font-weight:bold;color:${A.selOrixa===k?o.color:'#C9952D88'};margin-top:2px">${o.name}</div>
+        </button>`).join('')}</div>
+      ${A.error?`<p style="color:#ff6666;font-size:13px;margin:8px 0">${A.error}</p>`:''}
+      <button onclick="handleCreate()" style="width:100%;padding:14px;background:#C9952D;color:#1a0e05;border-radius:8px;font-size:16px;font-weight:bold;margin-bottom:12px">Criar Sala</button>
+      <div style="display:flex;align-items:center;gap:8px;margin:14px 0"><div style="flex:1;height:1px;background:#C9952D44"></div><span style="color:#C9952D88;font-size:12px">OU</span><div style="flex:1;height:1px;background:#C9952D44"></div></div>
+      <div style="display:flex;gap:8px">
+        <input id="ci" style="flex:1;padding:12px;background:#2d1a0a;border:1px solid #C9952D44;border-radius:8px;color:#F5E6C8;font-size:18px;text-align:center;letter-spacing:4px" placeholder="Código" maxlength="4" value="${A.inputCode}">
+        <button onclick="handleJoin()" style="padding:12px 20px;background:#2d1a0a;color:#C9952D;border:1px solid #C9952D;border-radius:8px;font-size:14px;font-weight:bold">Entrar</button>
+      </div>
+    </div></div>`;
+  document.getElementById('ni').oninput=e=>A.playerName=e.target.value;
+  document.getElementById('ci').oninput=e=>A.inputCode=e.target.value.toUpperCase();
+}
+
+function renderGame(){
+  const s=A.gs;if(!s){root.innerHTML='<div style="min-height:100vh;display:flex;align-items:center;justify-content:center"><p>Carregando...</p></div>';return}
+  const my=s[me()],op=s[opp()],myT=isMyTurn();
+  const wait=s.phase==="waiting",over=s.phase==="game_over",shop=s.shopPhase;
+  const topP=A.playerNum===1?[12,11,10,9,8,7]:[5,4,3,2,1,0];
+  const botP=A.playerNum===1?[0,1,2,3,4,5]:[7,8,9,10,11,12];
+  const lS=A.playerNum===1?P2S:P1S,rS=A.playerNum===1?P1S:P2S;
+  const myC=my.orixa?OX[my.orixa].color:'#C9952D';
+  const opC=op.orixa?OX[op.orixa].color:'#888';
+  const myHasChosen=me()==="p1"?(s.shopP1Choice!==-99&&s.shopP1Choice!==undefined):(s.shopP2Choice!==-99&&s.shopP2Choice!==undefined);
+
+  // Entity labels for columns
+  const entTop=A.playerNum===1?[...ENTITIES].reverse():ENTITIES;
+  const entBot=A.playerNum===1?ENTITIES:[...ENTITIES].reverse();
+
+  let overlays='';
+
+  // Battle popup
+  if(s.battleResult){
+    const b=s.battleResult;
+    if(b.type==='judgment'){
+      overlays+=`<div class="overlay"><div class="modal">
+        <div style="color:#C9952D;font-size:12px;letter-spacing:4px;text-align:center">⚡ JULGAMENTO ⚡</div>
+        <h3>${b.card}</h3>
+        <div style="text-align:center;margin:16px 0">
+          <div style="color:#888;font-size:11px">Resultado do Dado</div>
+          <div style="font-size:36px">${b.r1.map(d=>['⚀','⚁','⚂','⚃','⚄','⚅'][d-1]).join(' ')}</div>
+          <div style="color:#C9952D;font-size:22px;font-weight:bold;margin:4px 0">${b.t1} <span style="color:#888;font-size:14px">/ precisa ≥${b.threshold}</span></div>
+        </div>
+        <div style="text-align:center;color:${b.success?'#88dda8':'#dd8888'};font-size:16px;font-weight:bold;margin:8px 0">${b.success?'✅ SUCESSO!':'❌ FALHOU!'}</div>
+        <div style="text-align:center;color:#ddd;font-size:13px">${b.effect}</div>
+        <button onclick="handleClearBattle()" style="width:100%;padding:12px;background:#C9952D;color:#1a0e05;border-radius:8px;font-size:14px;font-weight:bold;margin-top:16px">Fechar</button>
+      </div></div>`;
+    } else {
+      overlays+=`<div class="overlay"><div class="modal">
+        <div style="color:#C9952D;font-size:12px;letter-spacing:4px;text-align:center">⚔️ BATALHA ⚔️</div>
+        <h3>${b.card}</h3>
+        <div style="display:flex;justify-content:center;gap:30px;margin:16px 0">
+          <div style="text-align:center"><div style="color:#888;font-size:11px">Atacante</div><div style="font-size:32px">${(b.r1||[]).map(d=>['⚀','⚁','⚂','⚃','⚄','⚅'][d-1]).join(' ')}</div><div style="color:#C9952D;font-size:18px;font-weight:bold">${b.t1}</div></div>
+          <div style="color:#F5E6C8;font-size:20px;align-self:center">vs</div>
+          <div style="text-align:center"><div style="color:#888;font-size:11px">Defensor</div><div style="font-size:32px">${(b.r2||[]).map(d=>['⚀','⚁','⚂','⚃','⚄','⚅'][d-1]).join(' ')}</div><div style="color:#C9952D;font-size:18px;font-weight:bold">${b.t2}</div></div>
+        </div>
+        <div style="text-align:center;color:#88dda8;font-size:14px;font-weight:bold;margin:8px 0">🏆 ${b.winName} vence!</div>
+        <div style="text-align:center;color:#ddd;font-size:13px">${b.effect}</div>
+        <button onclick="handleClearBattle()" style="width:100%;padding:12px;background:#C9952D;color:#1a0e05;border-radius:8px;font-size:14px;font-weight:bold;margin-top:16px">Fechar</button>
+      </div></div>`;
+    }
+  }
+
+  // Shop popup
+  if(shop&&!myHasChosen){
+    overlays+=`<div class="overlay"><div class="modal">
+      <div style="color:#C9952D;font-size:12px;letter-spacing:4px;text-align:center">🏪 FEIRA DE ARUANDA 🏪</div>
+      <h3>Escolha 1 carta (ou passe)</h3>
+      <div style="display:flex;justify-content:center;gap:16px;margin:8px 0;padding:8px;background:#0a060466;border-radius:8px">
+        <span style="font-size:13px;color:#F5E6C8;font-weight:bold">Seus pontos:</span>
+        <span style="color:#4A9E6A;font-size:13px">💚 ${my.cura}</span>
+        <span style="color:#E8C84A;font-size:13px">💛 ${my.humanidade}</span>
+        <span style="color:#b888dd;font-size:13px">💜 ${my.caridade}</span>
+        <span style="color:#C9952D;font-size:13px">🔶 ${my.cura+my.humanidade+my.caridade}</span>
+      </div>
+      <p style="color:#888;font-size:10px;text-align:center;margin-bottom:10px">Cartas gratuitas na Feira! Se ambos escolherem a mesma, haverá uma batalha.</p>
+      <div style="display:flex;flex-direction:column;gap:8px">${(s.shopCards||[]).map((c,i)=>{
+        const cs=CS[c.type];
+        const affordable=canAfford(my,c);
+        return`<button onclick="${affordable?`handleShopPick(${i})`:''}" ${affordable?'':'disabled'} style="background:${cs.bg};border:1px solid ${affordable?cs.bd:'#33333388'};border-radius:8px;padding:10px 12px;text-align:left;opacity:${affordable?1:0.4}">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="color:${cs.tx};font-size:13px;font-weight:bold">${c.name}</span>
+            <span style="color:${affordable?'#88dda8':'#dd8888'};font-size:11px;background:#0005;border-radius:4px;padding:2px 6px">${c.cost}${c.costType==="any"?"🔶":ptIcon(c.costType)} ${affordable?'✓':'✗ sem pontos'}</span>
+          </div>
+          <div style="color:#C9952D88;font-size:9px;letter-spacing:1px">${c.type}</div>
+          <div style="color:#ddd;font-size:11px;margin-top:2px">${c.effect}</div>
+        </button>`;}).join('')}</div>
+      <button onclick="handleShopSkip()" style="width:100%;padding:12px;background:#333;color:#C9952D;border:1px solid #C9952D44;border-radius:8px;font-size:13px;margin-top:12px">Passar (não comprar)</button>
+    </div></div>`;
+  } else if(shop&&myHasChosen){
+    overlays+=`<div class="overlay"><div class="modal" style="text-align:center;padding:32px">
+      <div style="font-size:32px;margin-bottom:12px">⏳</div>
+      <p style="color:#C9952D;font-size:14px">Aguardando o outro jogador escolher...</p>
+    </div></div>`;
+  }
+
+  // Feedback popup
+  if(A.showFeedback){
+    const stars=(key,val)=>[1,2,3,4,5].map(i=>`<button style="font-size:24px;background:none;border:none;cursor:pointer;${i<=val?'':'filter:grayscale(1)'}" onclick="setState({${key}:${i}})">${i<=val?'⭐':'☆'}</button>`).join('');
+    overlays+=`<div class="overlay"><div class="modal">
+      <h3>📝 Feedback do Playtest</h3>
+      ${A.fbSent?`<p style="text-align:center;color:#88dda8;margin:20px 0">✅ Enviado! Obrigado!</p><button onclick="setState({showFeedback:false})" style="width:100%;padding:12px;background:#C9952D;color:#1a0e05;border-radius:8px;font-weight:bold">Fechar</button>`:`
+      <p style="color:#ddd;font-size:13px;margin:8px 0">Diversão:</p><div>${stars('fbFun',A.fbFun)}</div>
+      <p style="color:#ddd;font-size:13px;margin:8px 0">Equilíbrio:</p><div>${stars('fbBal',A.fbBal)}</div>
+      <p style="color:#ddd;font-size:13px;margin:8px 0">Clareza das regras:</p><div>${stars('fbClar',A.fbClar)}</div>
+      <p style="color:#ddd;font-size:13px;margin:8px 0">Comentários:</p>
+      <textarea id="fbt" style="width:100%;padding:10px;background:#1a0e05;border:1px solid #C9952D44;border-radius:8px;color:#F5E6C8;font-size:13px;min-height:60px;resize:vertical" placeholder="O que achou?">${A.fbText}</textarea>
+      <button onclick="A.fbText=document.getElementById('fbt').value;submitFeedback()" style="width:100%;padding:12px;background:#C9952D;color:#1a0e05;border-radius:8px;font-weight:bold;margin-top:12px">Enviar</button>`}
+    </div></div>`;
+  }
+
+  root.innerHTML=`<div style="min-height:100vh;display:flex;flex-direction:column">
+    <!-- HEADER -->
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid #C9952D33;flex-shrink:0">
+      <div style="font-size:11px"><span style="color:#C9952D">Sala: ${A.roomCode}</span> <span style="color:#666">• T${s.turnNum}</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:12px;color:${wait?'#C9952D':over?'#C9952D':myT?'#88dda8':'#dd8888'};font-weight:bold">${wait?'⏳ Aguardando...':over?'🏆 Fim':shop?'🏪 Feira':myT?'✦ SUA VEZ':'⏳ '+op.name}</span>
+        <button onclick="toggleFullscreen()" style="background:#333;color:#C9952D;padding:4px 8px;border-radius:4px;font-size:10px" title="Tela cheia">⛶</button>
+      </div>
+    </div>
+
+    <!-- LAST EVENT NOTIFICATION BANNER -->
+    ${s.lastEvent&&!wait?`<div style="padding:6px 12px;background:${
+      s.lastEvent.type==='capture'?'#2d5016':
+      s.lastEvent.type==='card'?'#1a2a3a':
+      s.lastEvent.type==='ability'?'#3a2a0a':
+      s.lastEvent.type==='blocked'?'#3a1a1a':
+      s.lastEvent.type==='extra'?'#1a3a2a':
+      s.lastEvent.type==='passive'?'#2a1a3a':'#1a1a1a'
+    }22;border-left:3px solid ${
+      s.lastEvent.type==='capture'?'#88dda8':
+      s.lastEvent.type==='card'?'#88aadd':
+      s.lastEvent.type==='ability'?'#C9952D':
+      s.lastEvent.type==='blocked'?'#dd8888':
+      s.lastEvent.type==='extra'?'#88dda8':
+      s.lastEvent.type==='passive'?'#b888dd':'#888'
+    };flex-shrink:0">
+      <div style="font-size:11px;line-height:1.4;color:#F5E6C8">${s.lastEvent.icon} <strong>${s.lastEvent.player}:</strong> ${s.lastEvent.text.replace(s.lastEvent.player+': ','').substring(0,120)}</div>
+    </div>`:(!wait&&!over?`<div style="padding:4px 12px;background:#1a1a1a22;border-left:3px solid #C9952D44;flex-shrink:0"><div style="font-size:10px;color:#C9952D88">🌱 Aguardando ação...</div></div>`:'')}
+
+    <!-- OPPONENT INFO -->
+    ${!wait&&op.orixa?`<div style="display:flex;justify-content:space-between;padding:4px 12px;background:#0a060433;font-size:10px">
+      <span style="color:${opC}">${OX[op.orixa].emoji} ${op.name} (${OX[op.orixa].name})</span>
+      <span style="color:#888">🃏${(op.hand||[]).length} | 💚${op.cura} 💛${op.humanidade} 💜${op.caridade}</span>
+    </div>
+    <div class="passive-bar">
+      <span style="color:#888;font-size:9px">Passiva ${op.name}:</span>
+      <span class="passive-badge ${op.passiveCd?'passive-cd':'passive-on'}">${op.passiveCd?'⏳ Cooldown':'✦ '+OX[op.orixa].passiveShort}</span>
+      ${op.abilityUsed?'<span class="passive-badge passive-cd">Hab. Única: usada</span>':'<span class="passive-badge passive-on">Hab. Única: disponível</span>'}
+    </div>`:''}
+
+    <!-- ENTITY LABELS TOP -->
+    <div style="display:flex;padding:0 ${A.playerNum===1?'68':'68'}px;gap:4px;margin:4px 12px 0">
+      ${entTop.map(e=>`<div style="flex:1;text-align:center;font-size:8px;color:${e.color}">${e.icon} ${e.type}</div>`).join('')}
+    </div>
+
+    <!-- BOARD -->
+    <div style="padding:2px 12px">
+      <div style="display:flex;align-items:stretch;gap:6px">
+        <div style="width:56px;background:#1a0e0566;border:1px solid #5a3a1a;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 2px">
+          <div style="color:#888;font-size:9px">${op.name||'J2'}</div>
+          <div style="font-size:26px;font-weight:bold">${s.pits[lS]}</div>
+          <div style="color:#C9952D;font-size:7px">AYÉ</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+          ${A.targeting?`<div style="background:#C9952D22;border:1px solid #C9952D;border-radius:8px;padding:6px 10px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center"><span style="color:#C9952D;font-size:11px;font-weight:bold">🎯 ${A.targeting.label} (${A.targeting.count-A.targeting.selected.length} restante)</span><button onclick="handleTargetCancel()" style="padding:4px 10px;background:#4a1a1a;color:#ff8888;border:1px solid #ff4444;border-radius:6px;font-size:10px">✕ Cancelar</button></div>`:''}
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:3px">${topP.map(i=>{
+            const tgtEnemy=A.targeting&&A.targeting.mode==='enemy'&&oppPits().includes(i)&&!A.targeting.selected.includes(i);
+            const tgtSelected=A.targeting&&A.targeting.selected.includes(i);
+            return`<button onclick="${tgtEnemy?`handleTargetPit(${i})`:''}" ${tgtEnemy?'':'disabled'} style="background:${tgtSelected?'#C9952D33':'radial-gradient(circle,#3d2a15,#2a1a0a)'};border:2px solid ${tgtEnemy?'#C9952D':tgtSelected?'#88dda8':'#5a3a1a'};border-radius:10px;padding:6px 2px;text-align:center;min-height:44px;cursor:${tgtEnemy?'pointer':'default'}"><div style="font-size:22px;font-weight:bold;color:#F5E6C8;text-shadow:0 0 6px #C9952D88">${s.pits[i]}</div>${tgtSelected?'<div style="font-size:7px;color:#88dda8">✓</div>':''}</button>`;}).join('')}</div>
+          <div style="display:flex;justify-content:center;padding:2px 0;gap:8px;align-items:center">
+            <div style="background:#1a0e05;border:1px solid #5A2D6A44;border-radius:20px;padding:3px 16px;display:flex;align-items:center;gap:6px"><span style="color:#5A2D6A;font-size:9px">⛩️ ALTAR</span><span style="color:#C9952D;font-size:14px;font-weight:bold">${s.altar}</span></div>
+            ${(()=>{
+              const cp=s.currentPlayer;const cpOrixa=cp===1?s.p1.orixa:s.p2.orixa;
+              let dir='anti-horário';let arrow='⟲';
+              if(cpOrixa==='iansa'&&s.turnNum%2===0){dir='horário';arrow='⟳';}
+              const isIansa=cpOrixa==='iansa';
+              return '<div style="background:#1a0e05;border:1px solid '+(isIansa?'#8B451344':'#5a3a1a44')+';border-radius:20px;padding:3px 12px;display:flex;align-items:center;gap:4px"><span style="font-size:12px">'+arrow+'</span><span style="font-size:8px;color:'+(isIansa?'#C9952D':'#888')+'">'+(isIansa?'🌪️ ':'')+'Semeadura: '+dir+'</span></div>';
+            })()}</div>
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:3px">${botP.map(i=>{
+            const tgtOwn=A.targeting&&A.targeting.mode==='own'&&myPits().includes(i)&&!A.targeting.selected.includes(i);
+            const tgtSelected=A.targeting&&A.targeting.selected.includes(i);
+            const act=!A.targeting&&myT&&s.phase==="playing"&&!s.hasSowed&&myPits().includes(i)&&s.pits[i]>0&&s.lockedPit!==i;
+            const locked=s.lockedPit===i;const prot=s.protectedPit===i;
+            const clickable=act||tgtOwn;
+            return`<button onclick="${act?`handleSow(${i})`:tgtOwn?`handleTargetPit(${i})`:''}" ${clickable?'':'disabled'} style="background:${tgtSelected?'#C9952D33':locked?'#3a1a1a':prot?'#1a3a2a':'radial-gradient(circle,'+(clickable?'#4a3520':'#3d2a15')+',#2a1a0a)'};border:2px solid ${tgtOwn?'#C9952D':tgtSelected?'#88dda8':act?'#C9952D':locked?'#ff4444':prot?'#44ff44':'#5a3a1a'};border-radius:10px;padding:6px 2px;text-align:center;min-height:44px;cursor:${clickable?'pointer':'default'}"><div style="font-size:22px;font-weight:bold;color:#F5E6C8;text-shadow:0 0 6px #C9952D88">${s.pits[i]}</div>${locked?'<div style="font-size:7px">🔒</div>':prot?'<div style="font-size:7px">🛡️</div>':tgtSelected?'<div style="font-size:7px;color:#88dda8">✓</div>':''}</button>`;}).join('')}</div>
+        </div>
+        <div style="width:56px;background:${myC}11;border:1px solid ${myC}55;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 2px">
+          <div style="color:#888;font-size:9px">${my.name}</div>
+          <div style="font-size:26px;font-weight:bold">${s.pits[rS]}</div>
+          <div style="color:#C9952D;font-size:7px">AYÉ</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ENTITY LABELS BOTTOM -->
+    <div style="display:flex;padding:0 68px;gap:4px;margin:0 12px 2px">
+      ${entBot.map(e=>`<div style="flex:1;text-align:center;font-size:8px;color:${e.color}">${e.icon} ${e.type}</div>`).join('')}
+    </div>
+
+    <!-- MY INFO -->
+    <div style="display:flex;justify-content:space-between;padding:3px 12px;font-size:11px">
+      <span style="color:${myC}">${my.orixa?OX[my.orixa].emoji:''} ${my.name}</span>
+      <span>💚${my.cura} 💛${my.humanidade} 💜${my.caridade}</span>
+    </div>
+
+    <!-- PASSIVE + ABILITY AS SPECIAL CARDS -->
+    <div style="display:flex;gap:6px;padding:2px 12px">
+      <div style="flex:1;background:#1a2a1a;border:1px solid ${my.passiveCd?'#dd888844':'#88dda844'};border-radius:8px;padding:6px 8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#88dda8;font-size:9px;font-weight:bold">PASSIVA</span>
+          <span class="passive-badge ${my.passiveCd?'passive-cd':'passive-on'}" style="font-size:8px">${my.passiveCd?'⏳ Cooldown':'✦ Ativa'}</span>
+        </div>
+        <div style="color:#ddd;font-size:9px;line-height:1.3;margin-top:2px">${OX[my.orixa].passive}</div>
+      </div>
+      <div style="flex:1;background:${my.abilityUsed?'#1a1a1a':'#2a1a0a'};border:1px solid ${my.abilityUsed?'#dd888844':'#C9952D'};border-radius:8px;padding:6px 8px;${my.abilityUsed?'opacity:0.5':'cursor:pointer'}" ${!my.abilityUsed&&myT&&!A.hasPlayedCard&&s.phase==='playing'&&!A.targeting?`onclick="handleUseAbility()"`:''}>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#C9952D;font-size:9px;font-weight:bold">⚡ HAB. ÚNICA</span>
+          <span style="font-size:8px;color:${my.abilityUsed?'#dd8888':'#88dda8'}">${my.abilityUsed?'Usada':'1x/partida'}</span>
+        </div>
+        <div style="color:#ddd;font-size:9px;line-height:1.3;margin-top:2px">${({
+          oxala:'Opaxorô: impede batalhas por 3 rodadas',
+          ogum:'Grito de Guerra: batalha suprema pela Kala mais cheia',
+          xango:'Julgamento: 2d6 ≥7 captura Kala inimiga, <7 perde 2',
+          iansa:'Tempestade: embaralha Kalas do adversário',
+          oxum:'Rio da Abundância: preenche Kalas vazias do Altar',
+          nana:'Ancestralidade: duplica Caridade acumulada',
+          exu:'Divisão: adversário divide mão, você escolhe qual metade ele fica',
+        })[my.orixa]}</div>
+      </div>
+    </div>
+
+    ${s.spyHand&&myT?`<div style="padding:4px 12px"><div style="background:#2a1a3a55;border-radius:8px;padding:6px 12px;font-size:11px"><span style="color:#b888dd">👁️ Mão de ${op.name}: </span><span style="color:#ddd">${s.spyHand.join(", ")}</span></div></div>`:''}
+
+    <!-- HAND -->
+    <div style="flex:1;overflow:auto;padding:2px 12px 6px">
+      <div style="color:#C9952D;font-size:9px;letter-spacing:2px;margin-bottom:3px">MINHA MÃO ${A.hasPlayedCard?'<span style="color:#dd8888">(carta já usada neste turno)</span>':''}</div>
+      <div class="hand-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px">${(my.hand||[]).map((c,i)=>{
+        const cs=CS[c.type];const aff=canAfford(my,c)&&myT&&s.phase==="playing"&&!A.hasPlayedCard&&!A.targeting;
+        return`<button onclick="${aff?`handlePlayCard(${i})`:''}" ${aff?'':'disabled'} style="background:${cs.bg};border:1px solid ${aff?cs.bd:'#333'};border-radius:8px;padding:6px 8px;text-align:left;opacity:${aff?1:.5}">
+          <div style="display:flex;justify-content:space-between"><span style="color:${cs.tx};font-size:10px;font-weight:bold">${c.name}</span><span style="color:#C9952D;font-size:9px;background:#0005;border-radius:4px;padding:1px 5px">${c.cost}${c.costType==='any'?'🔶':ptIcon(c.costType)}</span></div>
+          <div style="color:#C9952D88;font-size:8px;letter-spacing:1px">${c.type}</div>
+          <div style="color:#ddd;font-size:9px;line-height:1.3;margin-top:1px">${c.effect}</div>
+        </button>`;}).join('')||'<div style="color:#666;font-size:11px;padding:6px">Sem cartas</div>'}</div>
+    </div>
+
+    <!-- ACTION BAR -->
+    <div style="padding:6px 12px;border-top:1px solid #C9952D22;flex-shrink:0">${
+      wait?`<div style="text-align:center;padding:6px"><div style="color:#C9952D;font-size:14px;font-weight:bold">Código:</div><div style="font-size:32px;letter-spacing:8px;font-weight:bold">${A.roomCode}</div><div style="color:#888;font-size:11px;margin-top:2px">Envie ao outro jogador</div></div>`:
+      over?`<div style="text-align:center;padding:6px"><div style="color:#C9952D;font-size:16px;font-weight:bold">${s.pits[P1S]>s.pits[P2S]?s.p1.name:s.pits[P2S]>s.pits[P1S]?s.p2.name:'Empate'} ${s.pits[P1S]!==s.pits[P2S]?'vence!':'cósmico!'}</div><div style="color:#888">${s.pits[P1S]} vs ${s.pits[P2S]}</div><button onclick="setState({showFeedback:true})" style="padding:10px 20px;background:#C9952D;color:#1a0e05;border-radius:8px;font-weight:bold;margin-top:8px">📝 Feedback</button></div>`:
+      `<button onclick="handleEndTurn()" ${myT&&s.hasSowed?'':'disabled'} style="width:100%;padding:10px;background:${myT&&s.hasSowed?'#C9952D':'#333'};color:${myT&&s.hasSowed?'#1a0e05':'#666'};border-radius:8px;font-size:14px;font-weight:bold">${!myT?'⏳ Aguardando '+op.name+'...':!s.hasSowed?'Semeie primeiro':'Passar Turno ➜'}</button>`
+    }</div>
+
+    <!-- LOG -->
+    <div id="gameLog" style="max-height:120px;overflow:auto;padding:4px 12px 6px;border-top:1px solid #C9952D22;flex-shrink:0">
+      <div style="color:#C9952D55;font-size:8px;letter-spacing:2px;margin-bottom:2px">📜 CRÔNICAS DA PARTIDA</div>
+      ${(s.log||[]).slice(-12).map(l=>{
+        const color=l.includes('PASSIVA')?'#b888dd':l.includes('⚔️')||l.includes('BATALHA')||l.includes('DISPUTA')?'#dd8888':l.includes('✊')||l.includes('capturou')?'#88dda8':l.includes('🏪')||l.includes('Feira')?'#E8C84A':l.includes('🌅')?'#C9952D':l.includes('🏆')?'#C9952D':l.includes('🃏')||l.includes('jogou')?'#88aadd':l.includes('🛡️')?'#44ff44':'#C9952D88';
+        return`<div style="color:${color};font-size:10px;border-bottom:1px solid #C9952D08;padding:2px 0;line-height:1.3">${l}</div>`;
+      }).join('')}
+    </div>
+  </div>${overlays}`;
+  // Auto-scroll log
+  setTimeout(()=>{const el=document.getElementById('gameLog');if(el)el.scrollTop=el.scrollHeight;},50);
+}
+
+render();
+</script>
+</body>
+</html>
